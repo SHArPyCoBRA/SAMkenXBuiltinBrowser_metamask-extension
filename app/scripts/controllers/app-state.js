@@ -47,7 +47,10 @@ export default class AppStateController extends EventEmitter {
       nftsDetectionNoticeDismissed: false,
       showTestnetMessageInDropdown: true,
       showBetaHeader: isBeta(),
+      showPermissionsTour: true,
       showProductTour: true,
+      showNetworkBanner: true,
+      showAccountBanner: true,
       trezorModel: null,
       currentPopupId: undefined,
       // This key is only used for checking if the user had set advancedGasFee
@@ -62,6 +65,8 @@ export default class AppStateController extends EventEmitter {
         '0x5': true,
         '0x539': true,
       },
+      surveyLinkLastClickedOrClosed: null,
+      signatureSecurityAlertResponses: {},
     });
     this.timer = null;
 
@@ -170,6 +175,12 @@ export default class AppStateController extends EventEmitter {
     });
   }
 
+  setSurveyLinkLastClickedOrClosed(time) {
+    this.store.updateState({
+      surveyLinkLastClickedOrClosed: time,
+    });
+  }
+
   /**
    * Record the timestamp of the last time the user has seen the recovery phrase reminder
    *
@@ -192,7 +203,7 @@ export default class AppStateController extends EventEmitter {
     });
   }
 
-  ///: BEGIN:ONLY_INCLUDE_IN(snaps)
+  ///: BEGIN:ONLY_INCLUDE_IF(snaps)
   /**
    * Record if popover for snaps privacy warning has been shown
    * on the first install of a snap.
@@ -204,7 +215,7 @@ export default class AppStateController extends EventEmitter {
       snapsInstallPrivacyWarningShown: shown,
     });
   }
-  ///: END:ONLY_INCLUDE_IN
+  ///: END:ONLY_INCLUDE_IF
 
   /**
    * Record the timestamp of the last time the user has seen the outdated browser warning
@@ -355,12 +366,39 @@ export default class AppStateController extends EventEmitter {
   }
 
   /**
+   * Sets whether the permissions tour should be shown to the user
+   *
+   * @param showPermissionsTour
+   */
+  setShowPermissionsTour(showPermissionsTour) {
+    this.store.updateState({ showPermissionsTour });
+  }
+
+  /**
    * Sets whether the product tour should be shown
    *
    * @param showProductTour
    */
   setShowProductTour(showProductTour) {
     this.store.updateState({ showProductTour });
+  }
+
+  /**
+   * Sets whether the Network Banner should be shown
+   *
+   * @param showNetworkBanner
+   */
+  setShowNetworkBanner(showNetworkBanner) {
+    this.store.updateState({ showNetworkBanner });
+  }
+
+  /**
+   * Sets whether the Account Banner should be shown
+   *
+   * @param showAccountBanner
+   */
+  setShowAccountBanner(showAccountBanner) {
+    this.store.updateState({ showAccountBanner });
   }
 
   /**
@@ -397,7 +435,7 @@ export default class AppStateController extends EventEmitter {
     this.store.updateState({ usedNetworks });
   }
 
-  ///: BEGIN:ONLY_INCLUDE_IN(build-mmi)
+  ///: BEGIN:ONLY_INCLUDE_IF(build-mmi)
   /**
    * Set the interactive replacement token with a url and the old refresh token
    *
@@ -415,7 +453,39 @@ export default class AppStateController extends EventEmitter {
     });
   }
 
-  ///: END:ONLY_INCLUDE_IN
+  /**
+   * Set the setCustodianDeepLink with the fromAddress and custodyId
+   *
+   * @param {object} opts
+   * @param opts.fromAddress
+   * @param opts.custodyId
+   * @returns {void}
+   */
+  setCustodianDeepLink({ fromAddress, custodyId }) {
+    this.store.updateState({
+      custodianDeepLink: { fromAddress, custodyId },
+    });
+  }
+
+  ///: END:ONLY_INCLUDE_IF
+
+  getSignatureSecurityAlertResponse(securityAlertId) {
+    return this.store.getState().signatureSecurityAlertResponses[
+      securityAlertId
+    ];
+  }
+
+  addSignatureSecurityAlertResponse(securityAlertResponse) {
+    const currentState = this.store.getState();
+    const { signatureSecurityAlertResponses } = currentState;
+    this.store.updateState({
+      signatureSecurityAlertResponses: {
+        ...signatureSecurityAlertResponses,
+        [securityAlertResponse.securityAlertId]: securityAlertResponse,
+      },
+    });
+  }
+
   /**
    * A setter for the currentPopupId which indicates the id of popup window that's currently active
    *
@@ -435,6 +505,10 @@ export default class AppStateController extends EventEmitter {
   }
 
   _requestApproval() {
+    // If we already have a pending request this is a no-op
+    if (this._approvalRequestId) {
+      return;
+    }
     this._approvalRequestId = uuid();
 
     this.messagingSystem
@@ -448,7 +522,8 @@ export default class AppStateController extends EventEmitter {
         true,
       )
       .catch(() => {
-        // Intentionally ignored as promise not currently used
+        // If the promise fails, we allow a new popup to be triggered
+        this._approvalRequestId = null;
       });
   }
 

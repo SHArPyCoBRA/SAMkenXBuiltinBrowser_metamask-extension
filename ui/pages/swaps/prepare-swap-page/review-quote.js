@@ -19,7 +19,7 @@ import SelectQuotePopover from '../select-quote-popover';
 import { useEthFiatAmount } from '../../../hooks/useEthFiatAmount';
 import { useEqualityCheck } from '../../../hooks/useEqualityCheck';
 import { usePrevious } from '../../../hooks/usePrevious';
-import { useGasFeeInputs } from '../../../hooks/gasFeeInput/useGasFeeInputs';
+import { useGasFeeInputs } from '../../confirmations/hooks/useGasFeeInputs';
 import { MetaMetricsContext } from '../../../contexts/metametrics';
 import {
   FALLBACK_GAS_MULTIPLIER,
@@ -85,7 +85,7 @@ import {
   decWEIToDecETH,
   sumHexes,
 } from '../../../../shared/modules/conversion.utils';
-import { getCustomTxParamsData } from '../../confirm-approve/confirm-approve.util';
+import { getCustomTxParamsData } from '../../confirmations/confirm-approve/confirm-approve.util';
 import {
   quotesToRenderableData,
   getRenderableNetworkFeesForQuote,
@@ -461,7 +461,9 @@ export default function ReviewQuote({ setReceiveToAmount }) {
       smartTransactionFees?.tradeTxFees.feeEstimate +
       (smartTransactionFees?.approvalTxFees?.feeEstimate || 0);
     const stxMaxFeeInWeiDec =
-      stxEstimatedFeeInWeiDec * swapsNetworkConfig.stxMaxFeeMultiplier;
+      smartTransactionFees?.tradeTxFees.maxFeeEstimate +
+      (smartTransactionFees?.approvalTxFees?.maxFeeEstimate || 0);
+
     ({ feeInFiat, feeInEth, rawEthFee, feeInUsd } = getFeeForSmartTransaction({
       chainId,
       currentCurrency,

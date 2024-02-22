@@ -18,12 +18,12 @@ import {
   MetaMetricsEventCategory,
 } from '../../../../shared/constants/metametrics';
 import { TRANSACTION_ENVELOPE_TYPE_NAMES } from '../../../../shared/lib/transactions-controller-utils';
-///: BEGIN:ONLY_INCLUDE_IN(blockaid)
+///: BEGIN:ONLY_INCLUDE_IF(blockaid)
 import {
   BlockaidReason,
   BlockaidResultType,
 } from '../../../../shared/constants/security-provider';
-///: END:ONLY_INCLUDE_IN(blockaid)
+///: END:ONLY_INCLUDE_IF(blockaid)
 import {
   handleTransactionAdded,
   handleTransactionApproved,
@@ -135,8 +135,6 @@ describe('Transaction metrics', () => {
       gas_edit_type: 'none',
       network: mockNetworkId,
       referrer: ORIGIN_METAMASK,
-      security_alert_reason: BlockaidReason.notApplicable,
-      security_alert_response: BlockaidReason.notApplicable,
       source: MetaMetricsTransactionEventSource.User,
       status: 'unapproved',
       token_standard: TokenStandard.none,

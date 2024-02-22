@@ -2,7 +2,7 @@
 
 const { callbackify } = require('util');
 const path = require('path');
-const { writeFileSync, readFileSync } = require('fs');
+const { writeFileSync, readFileSync, unlinkSync } = require('fs');
 const EventEmitter = require('events');
 const assert = require('assert');
 const gulp = require('gulp');
@@ -43,6 +43,7 @@ const {
   getBuildName,
   getBuildAppId,
   getBuildIcon,
+  makeSelfInjecting,
 } = require('./utils');
 
 const {
@@ -301,6 +302,18 @@ function createScriptTasks({
    */
   function createTasksForScriptBundles({ buildTarget, taskPrefix }) {
     const standardEntryPoints = ['background', 'ui', 'content-script'];
+
+    // In MV3 we will need to build our offscreen entry point bundle and any
+    // entry points for iframes that we want to lockdown with LavaMoat.
+    if (process.env.ENABLE_MV3 === 'true') {
+      standardEntryPoints.push(
+        'offscreen',
+        'trezor-iframe',
+        'ledger-iframe',
+        'lattice-iframe',
+      );
+    }
+
     const standardSubtask = createTask(
       `${taskPrefix}:standardEntryPoints`,
       createFactoredBuild({
@@ -309,10 +322,20 @@ function createScriptTasks({
         buildTarget,
         buildType,
         entryFiles: standardEntryPoints.map((label) => {
-          if (label === 'content-script') {
-            return './app/vendor/trezor/content-script.js';
+          switch (label) {
+            case 'content-script':
+              return './app/vendor/trezor/content-script.js';
+            case 'offscreen':
+              return './offscreen/scripts/offscreen.ts';
+            case 'trezor-iframe':
+              return './offscreen/scripts/trezor-iframe.ts';
+            case 'ledger-iframe':
+              return './offscreen/scripts/ledger-iframe.ts';
+            case 'lattice-iframe':
+              return './offscreen/scripts/lattice-iframe.ts';
+            default:
+              return `./app/scripts/${label}.js`;
           }
-          return `./app/scripts/${label}.js`;
         }),
         ignoredFiles,
         policyOnly,
@@ -449,6 +472,26 @@ function createScriptTasks({
         version,
         applyLavaMoat,
       }),
+      () => {
+        // MV3 injects inpage into the tab's main world, but in MV2 we need
+        // to do it manually:
+        if (process.env.ENABLE_MV3) {
+          return;
+        }
+        // stringify inpage.js into itself, and then make it inject itself into the page
+        browserPlatforms.forEach((browser) => {
+          makeSelfInjecting(
+            path.join(__dirname, `../../dist/${browser}/${inpage}.js`),
+          );
+        });
+        // delete the inpage.js source map, as it no longer represents inpage.js
+        // and so `yarn source-map-explorer` can't handle it. It's also not
+        // useful anyway, as inpage.js is injected as a `script.textContent`,
+        // and not tracked in Sentry or browsers devtools anyway.
+        unlinkSync(
+          path.join(__dirname, `../../dist/sourcemaps/${inpage}.js.map`),
+        );
+      },
       createNormalBundle({
         buildTarget,
         buildType,
@@ -724,6 +767,9 @@ function createFactoredBuild({
               browserPlatforms,
               applyLavaMoat,
               isMMI: buildType === 'mmi',
+              isTest:
+                buildTarget === BUILD_TARGETS.TEST ||
+                buildTarget === BUILD_TARGETS.TEST_DEV,
             });
             renderHtmlFile({
               htmlName: 'home',
@@ -781,6 +827,46 @@ function createFactoredBuild({
               commonSet,
               browserPlatforms,
               applyLavaMoat: false,
+            });
+            break;
+          }
+          case 'offscreen': {
+            renderJavaScriptLoader({
+              groupSet,
+              commonSet,
+              browserPlatforms,
+              applyLavaMoat,
+              destinationFileName: 'load-offscreen.js',
+            });
+            break;
+          }
+          case 'trezor-iframe': {
+            renderJavaScriptLoader({
+              groupSet,
+              commonSet,
+              browserPlatforms,
+              applyLavaMoat,
+              destinationFileName: 'load-trezor-iframe.js',
+            });
+            break;
+          }
+          case 'ledger-iframe': {
+            renderJavaScriptLoader({
+              groupSet,
+              commonSet,
+              browserPlatforms,
+              applyLavaMoat,
+              destinationFileName: 'load-ledger-iframe.js',
+            });
+            break;
+          }
+          case 'lattice-iframe': {
+            renderJavaScriptLoader({
+              groupSet,
+              commonSet,
+              browserPlatforms,
+              applyLavaMoat,
+              destinationFileName: 'load-lattice-iframe.js',
             });
             break;
           }
@@ -1176,6 +1262,9 @@ async function setEnvironmentVariables({
 
   variables.set({
     DEBUG: devMode || testing ? variables.getMaybe('DEBUG') : undefined,
+    EIP_4337_ENTRYPOINT:
+      variables.getMaybe('EIP_4337_ENTRYPOINT') ||
+      '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789',
     IN_TEST: testing,
     INFURA_PROJECT_ID: getInfuraProjectId({
       buildType,
@@ -1241,7 +1330,6 @@ function renderJavaScriptLoader({
   const requiredScripts = [
     './snow.js',
     './use-snow.js',
-    './globalthis.js',
     './sentry-install.js',
     ...securityScripts,
     ...jsBundles,
@@ -1261,7 +1349,13 @@ function renderJavaScriptLoader({
   });
 }
 
-function renderHtmlFile({ htmlName, browserPlatforms, applyLavaMoat, isMMI }) {
+function renderHtmlFile({
+  htmlName,
+  browserPlatforms,
+  applyLavaMoat,
+  isMMI,
+  isTest,
+}) {
   if (applyLavaMoat === undefined) {
     throw new Error(
       'build/scripts/renderHtmlFile - must specify "applyLavaMoat" option',
@@ -1270,7 +1364,7 @@ function renderHtmlFile({ htmlName, browserPlatforms, applyLavaMoat, isMMI }) {
   const htmlFilePath = `./app/${htmlName}.html`;
   const htmlTemplate = readFileSync(htmlFilePath, 'utf8');
 
-  const htmlOutput = Sqrl.render(htmlTemplate, { isMMI });
+  const htmlOutput = Sqrl.render(htmlTemplate, { isMMI, isTest });
   browserPlatforms.forEach((platform) => {
     const dest = `./dist/${platform}/${htmlName}.html`;
     // we dont have a way of creating async events atm

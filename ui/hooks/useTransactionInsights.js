@@ -1,18 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { useSelector } from 'react-redux';
+import {
+  ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
+  useDispatch,
+  ///: END:ONLY_INCLUDE_IF
+  useSelector,
+} from 'react-redux';
 
 import { SeverityLevel } from '@metamask/snaps-sdk';
 import { TransactionType } from '@metamask/transaction-controller';
 import { stripHexPrefix } from '../../shared/modules/hexstring-utils';
 import { Tab } from '../components/ui/tabs';
 import DropdownTab from '../components/ui/tabs/snaps/dropdown-tab';
-import { SnapInsight } from '../components/app/confirm-page-container/snaps/snap-insight';
+import { SnapInsight } from '../components/app/snaps/snap-insight/snap-insight';
 import {
   getInsightSnapIds,
   getInsightSnaps,
   getSubjectMetadataDeepEqual,
 } from '../selectors';
 import { getSnapName } from '../helpers/utils/util';
+
+///: BEGIN:ONLY_INCLUDE_IF(build-flask)
+import { deleteInterface } from '../store/actions';
+///: END:ONLY_INCLUDE_IF
 import { useTransactionInsightSnaps } from './snaps/useTransactionInsightSnaps';
 
 const isAllowedTransactionTypes = (transactionType) =>
@@ -26,6 +35,9 @@ const isAllowedTransactionTypes = (transactionType) =>
 // https://github.com/MetaMask/metamask-extension/blob/develop/ui/components/app/confirm-page-container/confirm-page-container-content/confirm-page-container-content.component.js#L129
 // Thus it is not possible to use React Component here
 const useTransactionInsights = ({ txData }) => {
+  ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
+  const dispatch = useDispatch();
+  ///: END:ONLY_INCLUDE_IF
   const { txParams, chainId, origin } = txData;
   const caip2ChainId = `eip155:${stripHexPrefix(chainId)}`;
   const insightSnaps = useSelector(getInsightSnaps);
@@ -41,16 +53,16 @@ const useTransactionInsights = ({ txData }) => {
     chainId: caip2ChainId,
     origin,
     insightSnaps: insightSnapIds,
-    ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-mmi,build-beta)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-mmi,build-beta)
     insightSnapId: selectedInsightSnapId,
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
   };
 
   const { data, loading } = useTransactionInsightSnaps({
     ...insightHookParams,
-    ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-mmi,build-beta)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-mmi,build-beta)
     eagerFetching: false,
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
   });
 
   useEffect(() => {
@@ -58,6 +70,17 @@ const useTransactionInsights = ({ txData }) => {
       setSelectedInsightSnapId(insightSnapIds[0]);
     }
   }, [insightSnapIds, selectedInsightSnapId, setSelectedInsightSnapId]);
+
+  ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
+  useEffect(() => {
+    return () => {
+      data?.map(
+        ({ response }) =>
+          response?.id && dispatch(deleteInterface(response.id)),
+      );
+    };
+  }, [data]);
+  ///: END:ONLY_INCLUDE_IF
 
   if (!isAllowedTransactionTypes(txData.type) || !insightSnaps.length) {
     return null;
@@ -79,13 +102,13 @@ const useTransactionInsights = ({ txData }) => {
       >
         <SnapInsight
           snapId={selectedInsightSnapId}
-          ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+          ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
           data={data?.[0]}
-          ///: END:ONLY_INCLUDE_IN
+          ///: END:ONLY_INCLUDE_IF
           loading={loading}
-          ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-mmi,build-beta)
+          ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-mmi,build-beta)
           insightHookParams={insightHookParams}
-          ///: END:ONLY_INCLUDE_IN
+          ///: END:ONLY_INCLUDE_IF
         />
       </Tab>
     );
@@ -98,11 +121,11 @@ const useTransactionInsights = ({ txData }) => {
       };
     });
 
-    ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
     const selectedSnapData = data?.find(
       (promise) => promise?.snapId === selectedInsightSnapId,
     );
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
 
     insightComponent = (
       <DropdownTab
@@ -114,12 +137,12 @@ const useTransactionInsights = ({ txData }) => {
         <SnapInsight
           snapId={selectedInsightSnapId}
           loading={loading}
-          ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+          ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
           data={selectedSnapData}
-          ///: END:ONLY_INCLUDE_IN
-          ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-mmi,build-beta)
+          ///: END:ONLY_INCLUDE_IF
+          ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-mmi,build-beta)
           insightHookParams={insightHookParams}
-          ///: END:ONLY_INCLUDE_IN
+          ///: END:ONLY_INCLUDE_IF
         />
       </DropdownTab>
     );
@@ -129,9 +152,9 @@ const useTransactionInsights = ({ txData }) => {
     if (promise.response?.severity === SeverityLevel.Critical) {
       const {
         snapId,
-        response: { content },
+        response: { id },
       } = promise;
-      warningsArr.push({ snapId, content });
+      warningsArr.push({ snapId, id });
     }
     return warningsArr;
   }, []);

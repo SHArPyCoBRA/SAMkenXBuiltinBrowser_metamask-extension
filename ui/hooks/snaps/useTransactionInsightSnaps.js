@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { getTransactionOriginCaveat } from '@metamask/snaps-controllers';
+import { getTransactionOriginCaveat } from '@metamask/snaps-rpc-methods';
 import { handleSnapRequest } from '../../store/actions';
 import { getPermissionSubjectsDeepEqual } from '../../selectors';
 
@@ -18,19 +18,19 @@ export function useTransactionInsightSnaps({
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(undefined);
-  ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+  ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
   const [hasFetchedV2Insight, setHasFetchedV2Insight] = useState(false);
-  ///: END:ONLY_INCLUDE_IN
+  ///: END:ONLY_INCLUDE_IF
   useEffect(() => {
     let cancelled = false;
 
     async function fetchInsight() {
-      ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+      ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
       if (hasFetchedV2Insight) {
         setLoading(false);
         return;
       }
-      ///: END:ONLY_INCLUDE_IN
+      ///: END:ONLY_INCLUDE_IF
 
       if (!eagerFetching) {
         setLoading(false);
@@ -85,12 +85,12 @@ export function useTransactionInsightSnaps({
       if (!cancelled) {
         setData(reformattedData);
         setLoading(false);
-        ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+        ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
         setHasFetchedV2Insight(true);
-        ///: END:ONLY_INCLUDE_IN
+        ///: END:ONLY_INCLUDE_IF
       }
     }
-    if (transaction) {
+    if (transaction && Object.keys(transaction).length > 0) {
       fetchInsight();
     }
     return () => {
@@ -105,9 +105,9 @@ export function useTransactionInsightSnaps({
     // TODO: Figure out how to improve this
     JSON.stringify(insightSnaps),
     insightSnapId,
-    ///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-flask)
     hasFetchedV2Insight,
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
   ]);
 
   return { data, loading };

@@ -1,3 +1,8 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-nocheck `redux-thunk` and `@reduxjs/toolkit` are not compatible with
+// TypeScript 5.3.3. We can't update them because we rely on an old version of
+// @reduxjs/toolkit to be patched by our patch files. The patch is 6000+ lines.
+// I don't want to try to figure that one out.
 import { ReactFragment } from 'react';
 import log from 'loglevel';
 import { captureException } from '@sentry/browser';
@@ -27,6 +32,7 @@ import {
   TransactionType,
 } from '@metamask/transaction-controller';
 import { NetworkClientId } from '@metamask/network-controller';
+import { InterfaceState } from '@metamask/snaps-sdk';
 import { getMethodDataAsync } from '../helpers/utils/transactions.util';
 import switchDirection from '../../shared/lib/switch-direction';
 import {
@@ -38,17 +44,19 @@ import { getEnvironmentType, addHexPrefix } from '../../app/scripts/lib/util';
 import {
   getMetaMaskAccounts,
   getPermittedAccountsForCurrentTab,
-  getSelectedAddress,
   hasTransactionPendingApprovals,
   getApprovalFlows,
   getCurrentNetworkTransactions,
-  ///: BEGIN:ONLY_INCLUDE_IN(snaps)
+  getIsSigningQRHardwareTransaction,
+  ///: BEGIN:ONLY_INCLUDE_IF(snaps)
   getNotifications,
-  ///: END:ONLY_INCLUDE_IN
-  ///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+  ///: END:ONLY_INCLUDE_IF
+  ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
   getPermissionSubjects,
   getFirstSnapInstallOrUpdateRequest,
-  ///: END:ONLY_INCLUDE_IN
+  ///: END:ONLY_INCLUDE_IF
+  getInternalAccountByAddress,
+  getSelectedInternalAccount,
 } from '../selectors';
 import {
   computeEstimatedGasLimit,
@@ -82,9 +90,9 @@ import {
 } from '../../shared/constants/metametrics';
 import { parseSmartTransactionsError } from '../pages/swaps/swaps.util';
 import { isEqualCaseInsensitive } from '../../shared/modules/string-utils';
-///: BEGIN:ONLY_INCLUDE_IN(snaps)
+///: BEGIN:ONLY_INCLUDE_IF(snaps)
 import { NOTIFICATIONS_EXPIRATION_DELAY } from '../helpers/constants/notifications';
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 import {
   fetchLocale,
   loadRelativeTimeFormatLocaleData,
@@ -99,9 +107,9 @@ import {
 } from '../../shared/modules/error';
 import { ThemeType } from '../../shared/constants/preferences';
 import * as actionConstants from './actionConstants';
-///: BEGIN:ONLY_INCLUDE_IN(build-mmi)
+///: BEGIN:ONLY_INCLUDE_IF(build-mmi)
 import { updateCustodyState } from './institutional/institution-actions';
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 import {
   generateActionId,
   callBackgroundMethod,
@@ -220,7 +228,7 @@ export function createNewVaultAndGetSeedPhrase(
 
     try {
       await createNewVault(password);
-      const seedPhrase = await verifySeedPhrase();
+      const seedPhrase = await getSeedPhrase(password);
       return seedPhrase;
     } catch (error) {
       dispatch(displayWarning(error));
@@ -243,7 +251,7 @@ export function unlockAndGetSeedPhrase(
 
     try {
       await submitPassword(password);
-      const seedPhrase = await verifySeedPhrase();
+      const seedPhrase = await getSeedPhrase(password);
       await forceUpdateMetamaskState(dispatch);
       return seedPhrase;
     } catch (error) {
@@ -298,9 +306,10 @@ export function verifyPassword(password: string): Promise<boolean> {
   });
 }
 
-export async function verifySeedPhrase() {
+export async function getSeedPhrase(password: string) {
   const encodedSeedPhrase = await submitRequestToBackground<string>(
-    'verifySeedPhrase',
+    'getSeedPhrase',
+    [password],
   );
   return Buffer.from(encodedSeedPhrase).toString('utf8');
 }
@@ -314,7 +323,7 @@ export function requestRevealSeedWords(
 
     try {
       await verifyPassword(password);
-      const seedPhrase = await verifySeedPhrase();
+      const seedPhrase = await getSeedPhrase(password);
       return seedPhrase;
     } finally {
       dispatch(hideLoadingIndication());
@@ -526,9 +535,6 @@ export function connectHardware(
 
     let accounts: { address: string }[];
     try {
-      if (deviceName === HardwareDeviceNames.ledger) {
-        await submitRequestToBackground('establishLedgerTransportPreference');
-      }
       if (
         deviceName === HardwareDeviceNames.ledger &&
         ledgerTransportType === LedgerTransportTypes.webhid
@@ -1080,9 +1086,9 @@ export function updateAndApproveTx(
         dispatch(completedTx(txMeta.id));
         dispatch(hideLoadingIndication());
         dispatch(updateCustomNonce(''));
-        ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-beta,build-flask)
+        ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-beta,build-flask)
         dispatch(closeCurrentNotificationWindow());
-        ///: END:ONLY_INCLUDE_IN
+        ///: END:ONLY_INCLUDE_IF
         return txMeta;
       })
       .catch((err) => {
@@ -1127,7 +1133,7 @@ export function updateTransactionParams(
   };
 }
 
-///: BEGIN:ONLY_INCLUDE_IN(snaps)
+///: BEGIN:ONLY_INCLUDE_IF(snaps)
 export function disableSnap(
   snapId: string,
 ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
@@ -1165,36 +1171,36 @@ export function updateSnap(
 export async function getPhishingResult(website: string) {
   return await submitRequestToBackground('getPhishingResult', [website]);
 }
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 
 // TODO: Clean this up.
-///: BEGIN:ONLY_INCLUDE_IN(snaps)
+///: BEGIN:ONLY_INCLUDE_IF(snaps)
 export function removeSnap(
   snapId: string,
 ): ThunkAction<Promise<void>, MetaMaskReduxState, unknown, AnyAction> {
   return async (
     dispatch: MetaMaskReduxDispatch,
-    ///: END:ONLY_INCLUDE_IN
-    ///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+    ///: END:ONLY_INCLUDE_IF
+    ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
     getState,
-    ///: END:ONLY_INCLUDE_IN
-    ///: BEGIN:ONLY_INCLUDE_IN(snaps)
+    ///: END:ONLY_INCLUDE_IF
+    ///: BEGIN:ONLY_INCLUDE_IF(snaps)
   ) => {
     dispatch(showLoadingIndication());
-    ///: END:ONLY_INCLUDE_IN
-    ///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+    ///: END:ONLY_INCLUDE_IF
+    ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
     const subjects = getPermissionSubjects(getState()) as {
       [k: string]: { permissions: Record<string, any> };
     };
 
     const isAccountsSnap =
       subjects[snapId]?.permissions?.snap_manageAccounts !== undefined;
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
 
-    ///: BEGIN:ONLY_INCLUDE_IN(snaps)
+    ///: BEGIN:ONLY_INCLUDE_IF(snaps)
     try {
-      ///: END:ONLY_INCLUDE_IN
-      ///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+      ///: END:ONLY_INCLUDE_IF
+      ///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
       if (isAccountsSnap) {
         const addresses: string[] = await submitRequestToBackground(
           'getAccountsBySnapId',
@@ -1204,8 +1210,8 @@ export function removeSnap(
           await submitRequestToBackground('removeAccount', [address]);
         }
       }
-      ///: END:ONLY_INCLUDE_IN
-      ///: BEGIN:ONLY_INCLUDE_IN(snaps)
+      ///: END:ONLY_INCLUDE_IF
+      ///: BEGIN:ONLY_INCLUDE_IF(snaps)
 
       await submitRequestToBackground('removeSnap', [snapId]);
       await forceUpdateMetamaskState(dispatch);
@@ -1294,8 +1300,30 @@ export function revokeDynamicSnapPermissions(
   };
 }
 
-///: END:ONLY_INCLUDE_IN
-///: BEGIN:ONLY_INCLUDE_IN(desktop)
+/**
+ * Disconnects a given origin from a snap.
+ *
+ * This revokes the permission granted to the origin
+ * that provides the capability to communicate with a snap.
+ *
+ * @param origin - The origin.
+ * @param snapId - The snap ID.
+ */
+export function disconnectOriginFromSnap(
+  origin: string,
+  snapId: string,
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return async (dispatch: MetaMaskReduxDispatch) => {
+    await submitRequestToBackground('disconnectOriginFromSnap', [
+      origin,
+      snapId,
+    ]);
+    await forceUpdateMetamaskState(dispatch);
+  };
+}
+
+///: END:ONLY_INCLUDE_IF
+///: BEGIN:ONLY_INCLUDE_IF(desktop)
 
 export function setDesktopEnabled(desktopEnabled: boolean) {
   return async () => {
@@ -1318,7 +1346,7 @@ export async function testDesktopConnection() {
 export async function disableDesktop() {
   return await submitRequestToBackground('disableDesktop');
 }
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 
 export function cancelDecryptMsg(
   msgData: TemporaryMessageDataType,
@@ -1551,12 +1579,15 @@ export function updateMetamaskState(
     const providerConfig = getProviderConfig(state);
     const { metamask: currentState } = state;
 
-    const { currentLocale, selectedAddress } = currentState;
-    const {
-      currentLocale: newLocale,
-      selectedAddress: newSelectedAddress,
-      providerConfig: newProviderConfig,
-    } = newState;
+    const { currentLocale } = currentState;
+    const currentInternalAccount = getSelectedInternalAccount(state);
+    const selectedAddress = currentInternalAccount?.address;
+    const { currentLocale: newLocale, providerConfig: newProviderConfig } =
+      newState;
+    const newInternalAccount = getSelectedInternalAccount({
+      metamask: newState,
+    });
+    const newSelectedAddress = newInternalAccount?.address;
 
     if (currentLocale && newLocale && currentLocale !== newLocale) {
       dispatch(updateCurrentLocale(newLocale));
@@ -1632,9 +1663,9 @@ export function updateMetamaskState(
       dispatch(initializeSendState({ chainHasChanged: true }));
     }
 
-    ///: BEGIN:ONLY_INCLUDE_IN(build-mmi)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-mmi)
     updateCustodyState(dispatch, newState, getState());
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
   };
 }
 
@@ -1701,6 +1732,34 @@ export function setSelectedAddress(
   };
 }
 
+async function _setSelectedInternalAccount(accountId: string): Promise<void> {
+  log.debug(`background.setSelectedInternalAccount`);
+  await submitRequestToBackground('setSelectedInternalAccount', [accountId]);
+}
+
+/**
+ * Sets the selected internal account.
+ *
+ * @param accountId - The ID of the account to set as selected.
+ * @returns A thunk action that dispatches loading and warning indications.
+ */
+export function setSelectedInternalAccount(
+  accountId: string,
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return async (dispatch: MetaMaskReduxDispatch) => {
+    dispatch(showLoadingIndication());
+    log.debug(`background.setSelectedInternalAccount`);
+    try {
+      await _setSelectedInternalAccount(accountId);
+    } catch (error) {
+      dispatch(displayWarning(error));
+      return;
+    } finally {
+      dispatch(hideLoadingIndication());
+    }
+  };
+}
+
 export function setSelectedAccount(
   address: string,
 ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
@@ -1712,12 +1771,12 @@ export function setSelectedAccount(
     const unconnectedAccountAccountAlertIsEnabled =
       getUnconnectedAccountAlertEnabledness(state);
     const activeTabOrigin = state.activeTab.origin;
-    const selectedAddress = getSelectedAddress(state);
+    const internalAccount = getInternalAccountByAddress(state, address);
     const permittedAccountsForCurrentTab =
       getPermittedAccountsForCurrentTab(state);
     const currentTabIsConnectedToPreviousAddress =
       Boolean(activeTabOrigin) &&
-      permittedAccountsForCurrentTab.includes(selectedAddress);
+      permittedAccountsForCurrentTab.includes(internalAccount.address);
     const currentTabIsConnectedToNextAddress =
       Boolean(activeTabOrigin) &&
       permittedAccountsForCurrentTab.includes(address);
@@ -1727,6 +1786,7 @@ export function setSelectedAccount(
 
     try {
       await _setSelectedAddress(address);
+      await _setSelectedInternalAccount(internalAccount.id);
       await forceUpdateMetamaskState(dispatch);
     } catch (error) {
       dispatch(displayWarning(error));
@@ -2076,9 +2136,27 @@ export async function getTokenStandardAndDetails(
   ]);
 }
 
+export async function getTokenSymbol(address: string): Promise<string | null> {
+  return await submitRequestToBackground('getTokenSymbol', [address]);
+}
+
 export function clearPendingTokens(): Action {
   return {
     type: actionConstants.CLEAR_PENDING_TOKENS,
+  };
+}
+
+export function abortTransactionSigning(
+  transactionId: string,
+): ThunkAction<Promise<void>, MetaMaskReduxState, any, AnyAction> {
+  return async (dispatch: MetaMaskReduxDispatch) => {
+    try {
+      await submitRequestToBackground('abortTransactionSigning', [
+        transactionId,
+      ]);
+    } catch (error) {
+      dispatch(displayWarning(error));
+    }
   };
 }
 
@@ -2459,6 +2537,13 @@ export function hideImportNftsModal(): Action {
   };
 }
 
+export function setConfirmationExchangeRates(value: Record<string, any>) {
+  return {
+    type: actionConstants.SET_CONFIRMATION_EXCHANGE_RATES,
+    value,
+  };
+}
+
 export function showIpfsModal(): Action {
   return {
     type: actionConstants.SHOW_IPFS_MODAL_OPEN,
@@ -2470,6 +2555,7 @@ export function hideIpfsModal(): Action {
     type: actionConstants.SHOW_IPFS_MODAL_CLOSE,
   };
 }
+
 export function closeCurrentNotificationWindow(): ThunkAction<
   void,
   MetaMaskReduxState,
@@ -2482,6 +2568,7 @@ export function closeCurrentNotificationWindow(): ThunkAction<
     if (
       getEnvironmentType() === ENVIRONMENT_TYPE_NOTIFICATION &&
       !hasTransactionPendingApprovals(state) &&
+      !getIsSigningQRHardwareTransaction(state) &&
       approvalFlows.length === 0
     ) {
       closeNotificationPopup();
@@ -2580,6 +2667,16 @@ export function hideLoadingIndication(): Action {
   };
 }
 
+/**
+ * An action creator for display a warning to the user in various places in the
+ * UI. It will not be cleared until a new warning replaces it or `hideWarning`
+ * is called.
+ *
+ * @deprecated This way of displaying a warning is confusing for users and
+ * should no longer be used.
+ * @param payload - The warning to show.
+ * @returns The action to display the warning.
+ */
 export function displayWarning(payload: unknown): PayloadAction<string> {
   if (isErrorWithMessage(payload)) {
     return {
@@ -2827,6 +2924,14 @@ export function setShowFiatConversionOnTestnetsPreference(value: boolean) {
 
 export function setShowTestNetworks(value: boolean) {
   return setPreference('showTestNetworks', value);
+}
+
+export function setPetnamesEnabled(value: boolean) {
+  return setPreference('petnamesEnabled', value);
+}
+
+export function setShowExtensionInFullSizeView(value: boolean) {
+  return setPreference('showExtensionInFullSizeView', value);
 }
 
 export function setAutoLockTimeLimit(value: boolean) {
@@ -3133,7 +3238,7 @@ export function detectNfts(): ThunkAction<
 }
 
 export function setAdvancedGasFee(
-  val: { chainId: Hex; maxBaseFee?: Hex; priorityFee?: Hex } | null,
+  val: { chainId: Hex; maxBaseFee?: string; priorityFee?: string } | null,
 ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
   return (dispatch: MetaMaskReduxDispatch) => {
     dispatch(showLoadingIndication());
@@ -3174,6 +3279,19 @@ export function setIpfsGateway(
   };
 }
 
+export function setIsIpfsGatewayEnabled(
+  val: string,
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return (dispatch: MetaMaskReduxDispatch) => {
+    log.debug(`background.setIsIpfsGatewayEnabled`);
+    callBackgroundMethod('setIsIpfsGatewayEnabled', [val], (err) => {
+      if (err) {
+        dispatch(displayWarning(err));
+      }
+    });
+  };
+}
+
 export function setUseAddressBarEnsResolution(
   val: string,
 ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
@@ -3199,7 +3317,7 @@ export function updateCurrentLocale(
       const textDirection = await submitRequestToBackground<
         'rtl' | 'ltr' | 'auto'
       >('setCurrentLocale', [key]);
-      await switchDirection(textDirection);
+      switchDirection(textDirection);
       dispatch(setCurrentLocale(key, localeMessages));
     } catch (error) {
       dispatch(displayWarning(error));
@@ -3287,6 +3405,11 @@ export function setSwapsFeatureFlags(
   };
 }
 
+type Quotes = [
+  { destinationAmount: string; decimals: number; aggregator: string },
+  string,
+];
+
 export function fetchAndSetQuotes(
   fetchParams: {
     slippage: string;
@@ -3303,19 +3426,9 @@ export function fetchAndSetQuotes(
     accountBalance: string;
     chainId: string;
   },
-): ThunkAction<
-  Promise<
-    [
-      { destinationAmount: string; decimals: number; aggregator: string },
-      string,
-    ]
-  >,
-  MetaMaskReduxState,
-  unknown,
-  AnyAction
-> {
+): ThunkAction<Promise<Quotes>, MetaMaskReduxState, unknown, AnyAction> {
   return async (dispatch: MetaMaskReduxDispatch) => {
-    const [quotes, selectedAggId] = await submitRequestToBackground(
+    const [quotes, selectedAggId] = await submitRequestToBackground<Quotes>(
       'fetchAndSetQuotes',
       [fetchParams, fetchParamsMetaData],
     );
@@ -3576,34 +3689,46 @@ export function removePermissionsFor(
   };
 }
 
-///: BEGIN:ONLY_INCLUDE_IN(snaps)
 /**
- * Updates the caveat value for the specified origin, permission and caveat type.
+ * Updates the order of networks after drag and drop
  *
- * @param origin
- * @param target
- * @param caveatType
- * @param caveatValue
+ * @param orderedNetworkList
  */
-export function updateCaveat(
-  origin: string,
-  target: string,
-  caveatType: string,
-  caveatValue: Record<string, Json>,
+export function updateNetworksList(
+  orderedNetworkList: [],
 ): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
-  return (dispatch) => {
-    callBackgroundMethod(
-      'updateCaveat',
-      [origin, target, caveatType, caveatValue],
-      (err) => {
-        if (err) {
-          dispatch(displayWarning(err));
-        }
-      },
-    );
+  return async () => {
+    await submitRequestToBackground('updateNetworksList', [orderedNetworkList]);
   };
 }
-///: END:ONLY_INCLUDE_IN
+
+/**
+ * Updates the pinned accounts list
+ *
+ * @param pinnedAccountList
+ */
+export function updateAccountsList(
+  pinnedAccountList: [],
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return async () => {
+    await submitRequestToBackground('updateAccountsList', [pinnedAccountList]);
+  };
+}
+
+/**
+ * Hides account in the accounts list
+ *
+ * @param hiddenAccountList
+ */
+export function updateHiddenAccountsList(
+  hiddenAccountList: [],
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return async () => {
+    await submitRequestToBackground('updateHiddenAccountsList', [
+      hiddenAccountList,
+    ]);
+  };
+}
 
 // Pending Approvals
 
@@ -3623,12 +3748,12 @@ export function resolvePendingApproval(
     // Before closing the current window, check if any additional confirmations
     // are added as a result of this confirmation being accepted
 
-    ///: BEGIN:ONLY_INCLUDE_IN(build-main,build-beta,build-flask)
+    ///: BEGIN:ONLY_INCLUDE_IF(build-main,build-beta,build-flask)
     const { pendingApprovals } = await forceUpdateMetamaskState(_dispatch);
     if (Object.values(pendingApprovals).length === 0) {
       _dispatch(closeCurrentNotificationWindow());
     }
-    ///: END:ONLY_INCLUDE_IN
+    ///: END:ONLY_INCLUDE_IF
   };
 }
 
@@ -3748,6 +3873,15 @@ export function setNewTokensImported(
   };
 }
 
+export function setNewTokensImportedError(
+  newTokensImportedError: string,
+): PayloadAction<string> {
+  return {
+    type: actionConstants.SET_NEW_TOKENS_IMPORTED_ERROR,
+    payload: newTokensImportedError,
+  };
+}
+
 export function setLastActiveTime(): ThunkAction<
   void,
   MetaMaskReduxState,
@@ -3844,6 +3978,12 @@ export function setRecoveryPhraseReminderLastShown(
 export function setTermsOfUseLastAgreed(lastAgreed: number) {
   return async () => {
     await submitRequestToBackground('setTermsOfUseLastAgreed', [lastAgreed]);
+  };
+}
+
+export function setSurveyLinkLastClickedOrClosed(time: number) {
+  return async () => {
+    await submitRequestToBackground('setSurveyLinkLastClickedOrClosed', [time]);
   };
 }
 
@@ -3946,7 +4086,7 @@ export function getNextNonce(): ThunkAction<
   AnyAction
 > {
   return async (dispatch, getState) => {
-    const address = getState().metamask.selectedAddress;
+    const { address } = getSelectedInternalAccount(getState());
     let nextNonce;
     try {
       nextNonce = await submitRequestToBackground<string>('getNextNonce', [
@@ -4006,16 +4146,6 @@ export function getOpenMetamaskTabsIds(): ThunkAction<
       [tabId: string]: boolean;
     }>('getOpenMetamaskTabsIds');
     dispatch(setOpenMetamaskTabsIDs(openMetaMaskTabIDs));
-  };
-}
-
-export function setLedgerTransportPreference(
-  value: LedgerTransportTypes,
-): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
-  return async (dispatch: MetaMaskReduxDispatch) => {
-    dispatch(showLoadingIndication());
-    await submitRequestToBackground('setLedgerTransportPreference', [value]);
-    dispatch(hideLoadingIndication());
   };
 }
 
@@ -4441,8 +4571,20 @@ export function hideBetaHeader() {
   return submitRequestToBackground('setShowBetaHeader', [false]);
 }
 
+export function hidePermissionsTour() {
+  return submitRequestToBackground('setShowPermissionsTour', [false]);
+}
+
 export function hideProductTour() {
   return submitRequestToBackground('setShowProductTour', [false]);
+}
+
+export function hideAccountBanner() {
+  return submitRequestToBackground('setShowAccountBanner', [false]);
+}
+
+export function hideNetworkBanner() {
+  return submitRequestToBackground('setShowNetworkBanner', [false]);
 }
 
 // TODO: codeword NOT_A_THUNK @brad-decker
@@ -4460,7 +4602,7 @@ export function setTransactionSecurityCheckEnabled(
   };
 }
 
-///: BEGIN:ONLY_INCLUDE_IN(blockaid)
+///: BEGIN:ONLY_INCLUDE_IF(blockaid)
 export function setSecurityAlertsEnabled(val: boolean): void {
   try {
     submitRequestToBackground('setSecurityAlertsEnabled', [val]);
@@ -4468,9 +4610,9 @@ export function setSecurityAlertsEnabled(val: boolean): void {
     logErrorWithMessage(error);
   }
 }
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 
-///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
 export async function setAddSnapAccountEnabled(value: boolean): Promise<void> {
   try {
     await submitRequestToBackground('setAddSnapAccountEnabled', [value]);
@@ -4503,7 +4645,7 @@ export async function getSnapAccountsById(snapId: string): Promise<string[]> {
 
   return addresses;
 }
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 
 export function setUseRequestQueue(val: boolean): void {
   try {
@@ -4513,7 +4655,6 @@ export function setUseRequestQueue(val: boolean): void {
   }
 }
 
-///: BEGIN:ONLY_INCLUDE_IN(petnames)
 export function setUseExternalNameSources(val: boolean): void {
   try {
     submitRequestToBackground('setUseExternalNameSources', [val]);
@@ -4521,7 +4662,6 @@ export function setUseExternalNameSources(val: boolean): void {
     logErrorWithMessage(error);
   }
 }
-///: END:ONLY_INCLUDE_IN
 
 export function setFirstTimeUsedNetwork(chainId: string) {
   return submitRequestToBackground('setFirstTimeUsedNetwork', [chainId]);
@@ -4643,7 +4783,7 @@ export async function throwTestBackgroundError(message: string): Promise<void> {
   await submitRequestToBackground('throwTestError', [message]);
 }
 
-///: BEGIN:ONLY_INCLUDE_IN(snaps)
+///: BEGIN:ONLY_INCLUDE_IF(snaps)
 /**
  * Set status of popover warning for the first snap installation.
  *
@@ -4658,24 +4798,52 @@ export function setSnapsInstallPrivacyWarningShownStatus(shown: boolean) {
     );
   };
 }
-///: END:ONLY_INCLUDE_IN
 
-///: BEGIN:ONLY_INCLUDE_IN(build-flask)
+/**
+ * Update the state of a given Snap interface.
+ *
+ * @param id - The Snap interface ID.
+ * @param state - The interface state.
+ * @returns Promise Resolved on successfully submitted background request.
+ */
+export function updateInterfaceState(
+  id: string,
+  state: InterfaceState,
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return (async (dispatch: MetaMaskReduxDispatch) => {
+    await submitRequestToBackground<void>('updateInterfaceState', [id, state]);
+    await forceUpdateMetamaskState(dispatch);
+  }) as any;
+}
+
+/**
+ * Delete the Snap interface from state.
+ *
+ * @param id - The Snap interface ID.
+ * @returns Promise Resolved on successfully submitted background request.
+ */
+export function deleteInterface(
+  id: string,
+): ThunkAction<void, MetaMaskReduxState, unknown, AnyAction> {
+  return (async (dispatch: MetaMaskReduxDispatch) => {
+    await submitRequestToBackground<void>('deleteInterface', [id]);
+    await forceUpdateMetamaskState(dispatch);
+  }) as any;
+}
+///: END:ONLY_INCLUDE_IF
+
+///: BEGIN:ONLY_INCLUDE_IF(build-flask)
 export function trackInsightSnapUsage(snapId: string) {
   return async () => {
     await submitRequestToBackground('trackInsightSnapView', [snapId]);
   };
 }
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF
 
-///: BEGIN:ONLY_INCLUDE_IN(keyring-snaps)
+///: BEGIN:ONLY_INCLUDE_IF(keyring-snaps)
 export async function setSnapsAddSnapAccountModalDismissed() {
   await submitRequestToBackground('setSnapsAddSnapAccountModalDismissed', [
     true,
   ]);
 }
-
-export async function updateSnapRegistry() {
-  await submitRequestToBackground('updateSnapRegistry', []);
-}
-///: END:ONLY_INCLUDE_IN
+///: END:ONLY_INCLUDE_IF

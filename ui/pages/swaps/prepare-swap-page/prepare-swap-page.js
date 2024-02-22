@@ -22,7 +22,6 @@ import {
   JustifyContent,
   AlignItems,
   SEVERITIES,
-  Size,
   TextVariant,
   BLOCK_SIZES,
 } from '../../../helpers/constants/design-system';
@@ -109,7 +108,7 @@ import {
   formatSwapsValueForDisplay,
   getClassNameForCharLength,
 } from '../swaps.util';
-import { fetchTokenBalance } from '../../../../shared/lib/token-util.ts';
+import { fetchTokenBalance } from '../../../../shared/lib/token-util';
 import { isEqualCaseInsensitive } from '../../../../shared/modules/string-utils';
 import { calcTokenAmount } from '../../../../shared/lib/transactions-controller-utils';
 import { shouldEnableDirectWrapping } from '../../../../shared/lib/swaps-utils';
@@ -121,12 +120,13 @@ import {
   ButtonLinkSize,
   Modal,
   ModalOverlay,
-  ModalContent,
-  ModalHeader,
   BannerAlert,
   Text,
+  TextField,
+  TextFieldSize,
 } from '../../../components/component-library';
-import { TextField } from '../../../components/component-library/text-field/deprecated';
+import { ModalContent } from '../../../components/component-library/modal-content/deprecated';
+import { ModalHeader } from '../../../components/component-library/modal-header/deprecated';
 import { SWAPS_NOTIFICATION_ROUTE } from '../../../helpers/constants/routes';
 import ImportToken from '../import-token';
 import TransactionSettings from '../transaction-settings/transaction-settings';
@@ -889,7 +889,7 @@ export default function PrepareSwapPage({
                 className={classnames('prepare-swap-page__from-token-amount', {
                   [fromTokenAmountClassName]: fromTokenAmountClassName,
                 })}
-                size={Size.SM}
+                size={TextFieldSize.Sm}
                 placeholder="0"
                 onChange={onTextFieldChange}
                 value={fromTokenInputValue}
